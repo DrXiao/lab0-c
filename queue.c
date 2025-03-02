@@ -195,6 +195,24 @@ bool q_delete_dup(struct list_head *head)
     return true;
 }
 
+static void qnode_move_before(struct list_head *node1, struct list_head *node2)
+{
+    list_del(node1);
+    node1->prev = node2->prev;
+    node1->next = node2;
+    node2->prev->next = node1;
+    node2->prev = node1;
+}
+
+static void qnode_move_after(struct list_head *node1, struct list_head *node2)
+{
+    list_del(node1);
+    node1->prev = node2;
+    node1->next = node2->next;
+    node2->next->prev = node1;
+    node2->next = node1;
+}
+
 /* Swap every two adjacent nodes */
 void q_swap(struct list_head *head)
 {
@@ -263,31 +281,102 @@ static bool cmp_descend(const char *str1, const char *str2)
     return strcmp(str1, str2) < 0;
 }
 
+static int q_sort_interval(struct list_head **head,
+                           struct list_head **tail,
+                           bool (*cmp)(const char *, const char *))
+{
+    element_t *l_elem, *r_elem;
+    struct list_head *l, *l_tail, *r, *temp;
+    int l_num, r_num, ret_num;
+
+    /* Handle the simplest cases. */
+    if (*head == *tail)
+        return 1;
+    else if ((*head)->next == *tail) {
+        l_elem = list_entry(*head, typeof(*l_elem), list);
+        r_elem = list_entry(*tail, typeof(*r_elem), list);
+        if (cmp(l_elem->value, r_elem->value))
+            qnode_move_after(*head, *tail);
+        return 2;
+    }
+
+    /* Split the queue into two sub-queues. */
+    l = *head;
+    r = *tail;
+
+    while (true) {
+        if (l == r)
+            break;
+        else if (l->next == r)
+            break;
+        l = l->next;
+        r = r->prev;
+    }
+
+    if (l == r)
+        r = r->next;
+
+    /* Sort two sub-queues respectively. */
+    l_num = q_sort_interval(head, &r->prev, cmp);
+    l = *head;
+    l_tail = r->prev;
+
+    r_num = q_sort_interval(&l_tail->next, tail, cmp);
+    r = l_tail->next;
+
+    ret_num = l_num + r_num;
+
+    /* Find the new head for the sorted queue after merging. */
+    l_elem = list_entry(l, typeof(*l_elem), list);
+    r_elem = list_entry(r, typeof(*r_elem), list);
+    if (cmp(l_elem->value, r_elem->value))
+        *head = r;
+
+    /* Merge two sub-queues into one queue.*/
+    while (l_num || r_num) {
+        if (!l_num) {
+            while (r_num--) {
+                temp = r->next;
+                qnode_move_after(r, l_tail);
+                l_tail = l_tail->next;
+                r = temp;
+            }
+            break;
+        } else if (!r_num) {
+            while (l_num--)
+                ;
+            break;
+        }
+
+        l_elem = list_entry(l, typeof(*l_elem), list);
+        r_elem = list_entry(r, typeof(*r_elem), list);
+
+        if (cmp(l_elem->value, r_elem->value)) {
+            temp = r->next;
+            qnode_move_before(r, l);
+            if (r_num) {
+                r = temp;
+                r_num -= 1;
+            }
+        } else if (l_num) {
+            l = l->next;
+            l_num -= 1;
+        }
+    }
+
+    *tail = l_tail;
+    return ret_num;
+}
+
 /* Sort elements of queue in ascending/descending order */
 void q_sort(struct list_head *head, bool descend)
 {
     bool (*cmp[2])(const char *, const char *) = {cmp_ascend, cmp_descend};
-    element_t *curr_elem, *iter_elem, *min;
-    struct list_head *curr;
-    char *temp;
 
-    list_for_each (curr, head) {
-        curr_elem = list_entry(curr, typeof(*curr_elem), list);
-        if (curr_elem->list.next == head)
-            break;
-        min = curr_elem;
-        for (iter_elem =
-                 list_entry(curr_elem->list.next, typeof(*iter_elem), list);
-             &iter_elem->list != head;
-             iter_elem =
-                 list_entry(iter_elem->list.next, typeof(*iter_elem), list)) {
-            if (cmp[descend](min->value, iter_elem->value))
-                min = iter_elem;
-        }
-        temp = curr_elem->value;
-        curr_elem->value = min->value;
-        min->value = temp;
-    }
+    if (!head || q_is_empty(head))
+        return;
+
+    q_sort_interval(&head->next, &head->prev, cmp[descend]);
 }
 
 /* Remove every node which has a node with a strictly less value anywhere to
