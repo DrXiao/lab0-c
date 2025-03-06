@@ -11,6 +11,12 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#if defined(__APPLE__)
+#include <mach/mach_time.h>
+#else /* Assume POSIX environments */
+#include <time.h>
+#endif
+
 #include "console.h"
 #include "report.h"
 #include "web.h"
@@ -391,6 +397,32 @@ static bool do_time(int argc, char *argv[])
     return ok;
 }
 
+static bool do_measure(int argc, char *argv[])
+{
+    bool ok = true;
+    int times;
+    struct timespec ts_start, ts_end, res;
+
+    if (argc == 1 || argc == 2) {
+        report(1, "%s takes too few arguments", argv[0]);
+        return false;
+    }
+
+    times = atoi(argv[1]);
+
+    while (ok && times--) {
+        clock_gettime(CLOCK_REALTIME, &ts_start);
+        ok = interpret_cmda(argc - 2, argv + 2);
+        clock_gettime(CLOCK_REALTIME, &ts_end);
+        res.tv_sec = ts_end.tv_sec - ts_start.tv_sec;
+        res.tv_nsec = ts_end.tv_nsec - ts_start.tv_nsec;
+        report(1, "elapsed time: %lld",
+               res.tv_sec * (long) (1e9) + res.tv_nsec);
+    }
+
+    return ok;
+}
+
 static bool use_linenoise = true;
 static int web_fd;
 
@@ -431,6 +463,9 @@ void init_cmd()
     ADD_COMMAND(log, "Copy output to file", "file");
     ADD_COMMAND(time, "Time command execution", "cmd arg ...");
     ADD_COMMAND(web, "Read commands from builtin web server", "[port]");
+    ADD_COMMAND(measure,
+                "Using clock_gettime to measure the time for each execution",
+                "n cmd arg ..");
     add_cmd("#", do_comment_cmd, "Display comment", "...");
     add_param("simulation", &simulation, "Start/Stop simulation mode", NULL);
     add_param("verbose", &verblevel, "Verbosity level", NULL);
